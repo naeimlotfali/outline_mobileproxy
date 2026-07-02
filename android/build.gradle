@@ -1,0 +1,80 @@
+group = "com.outline.outline_mobileproxy"
+version = "1.0-SNAPSHOT"
+
+buildscript {
+    ext.kotlin_version = "1.8.22"
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.1.0")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    if (project.android.hasProperty("namespace")) {
+        namespace = "com.outline.outline_mobileproxy"
+    }
+
+    compileSdk = 34
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+        test.java.srcDirs += "src/test/kotlin"
+    }
+
+    defaultConfig {
+        minSdk = 21
+        consumerProguardFiles("mobileproxy-consumer-rules.pro")
+    }
+
+    dependencies {
+        testImplementation("org.jetbrains.kotlin:kotlin-test")
+        testImplementation("org.mockito:mockito-core:5.0.0")
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+
+            testLogging {
+               events "passed", "skipped", "failed", "standardOut", "standardError"
+               outputs.upToDateWhen {false}
+               showStandardStreams = true
+            }
+        }
+    }
+}
+
+dependencies {
+    // Go Mobile bindings for golang.getoutline.org/sdk/x/mobileproxy, built with:
+    //   gomobile bind -target=android -androidapi=21 -o mobileproxy.aar golang.getoutline.org/sdk/x/mobileproxy
+    // AGP doesn't allow a library module to depend on a local .aar file (it can't be
+    // repackaged into this module's own AAR), so the upstream mobileproxy.aar is
+    // unpacked into libs/mobileproxy-classes.jar + src/main/jniLibs/*/libgojni.so
+    // instead. See tool/build_native.sh at the repo root to rebuild and re-unpack it.
+    implementation(files("libs/mobileproxy-classes.jar"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+}
