@@ -1,7 +1,11 @@
 # outline_mobileproxy
 
 [![pub package](https://img.shields.io/pub/v/outline_mobileproxy.svg)](https://pub.dev/packages/outline_mobileproxy)
+[![Build native binaries](https://github.com/naeimlotfali/outline_mobileproxy/actions/workflows/build-native.yml/badge.svg)](https://github.com/naeimlotfali/outline_mobileproxy/actions/workflows/build-native.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+> **Not affiliated with or endorsed by the Outline Foundation.** This is an
+> independent, third-party wrapper around their open-source SDK.
 
 A Flutter plugin for the Outline SDK's [Mobileproxy](https://github.com/OutlineFoundation/outline-sdk/tree/main/x/mobileproxy)
 library, for Android and iOS.
@@ -248,12 +252,37 @@ This plugin bundles prebuilt Mobileproxy binaries:
 
 They're built from the upstream Go source
 (`golang.getoutline.org/sdk/x/mobileproxy`) with
-[Go Mobile](https://pkg.go.dev/golang.org/x/mobile/cmd/gomobile). The Android
-artifacts are the AAR produced by `gomobile bind`, unpacked into a plain jar +
-`jniLibs`, because the Android Gradle Plugin does not allow a library module
-to declare a local `.aar` file dependency (it can't be re-packaged into this
-plugin's own AAR). See [`tool/build_native.sh`](tool/build_native.sh) to
-rebuild both from scratch, e.g. to pick up an SDK update:
+[Go Mobile](https://pkg.go.dev/golang.org/x/mobile/cmd/gomobile), at a
+**pinned, tagged revision** rather than a moving branch — see
+[`tool/OUTLINE_SDK_REF`](tool/OUTLINE_SDK_REF) for the exact ref and
+[`NATIVE_PROVENANCE.md`](NATIVE_PROVENANCE.md) for the resolved commit,
+toolchain versions, and flags used to produce what's currently checked in.
+The Android artifacts are the AAR produced by `gomobile bind`, unpacked into
+a plain jar + `jniLibs`, because the Android Gradle Plugin does not allow a
+library module to declare a local `.aar` file dependency (it can't be
+re-packaged into this plugin's own AAR).
+
+**Verifying the binaries.** [`.github/workflows/build-native.yml`](.github/workflows/build-native.yml)
+rebuilds both artifacts from that same pinned ref on every push/PR that
+touches it, in the open, and:
+
+- diffs the managed Java layer (`mobileproxy-classes.jar`) and the generated
+  iOS Objective-C header byte-for-byte against what's checked in — these are
+  deterministic given the same source and toolchain, so any mismatch fails
+  the build;
+- builds and links the example app against the freshly built native
+  libraries, and runs the plugin's [integration tests](example/integration_test/plugin_integration_test.dart)
+  against them on a real Android emulator and iOS Simulator, to functionally
+  verify the compiled `.so`/Mach-O binaries (these embed a Go build ID even
+  with `-trimpath`, so they aren't expected to be byte-identical across
+  separate builds — functional verification is the honest bar here, not a
+  raw binary diff);
+- uploads the freshly built artifacts so anyone can download and compare
+  them independently, rather than trusting the checked-in copies by
+  inspection alone.
+
+To rebuild locally, e.g. to bump [`tool/OUTLINE_SDK_REF`](tool/OUTLINE_SDK_REF)
+for an SDK update:
 
 ```bash
 tool/build_native.sh all

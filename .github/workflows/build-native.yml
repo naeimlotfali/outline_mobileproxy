@@ -1,0 +1,135 @@
+name: Build native binaries
+
+# Independently rebuilds the Mobileproxy Android/iOS binaries from the pinned
+# outline-sdk ref (tool/OUTLINE_SDK_REF) and verifies the checked-in
+# artifacts in this repo still match. Runs in the open so anyone can inspect
+# the exact commands and logs that produced them, and downloads the freshly
+# built artifacts as workflow artifacts for independent comparison.
+#
+# See NATIVE_PROVENANCE.md for what "match" means here: the managed Java
+# layer and the generated Objective-C header are deterministic and diffed
+# exactly; the compiled .so/Mach-O binaries are verified functionally, by
+# building and running the plugin's own example app against them, rather
+# than by raw binary diff (Go embeds a build ID even with -trimpath, so two
+# honest rebuilds of identical source are not byte-identical).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install pinned Android NDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager --install "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Build Android native library from pinned ref
+        run: tool/build_native.sh android
+
+      - name: Print resolved provenance
+        run: cat NATIVE_PROVENANCE.md
+
+      - name: Verify checked-in managed layer matches the pinned source
+        run: |
+          if ! git diff --exit-code -- android/libs/mobileproxy-classes.jar android/mobileproxy-consumer-rules.pro; then
+            echo "::error::android/libs/mobileproxy-classes.jar (or the consumer proguard rules) does not match a fresh build from the ref pinned in tool/OUTLINE_SDK_REF. Run tool/build_native.sh and commit the result."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobileproxy-android-${{ github.sha }}
+          path: |
+            android/libs/mobileproxy-classes.jar
+            android/src/main/jniLibs
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Unit tests
+        run: flutter test
+
+      - name: Build example APK against the freshly built native library
+        run: |
+          cd example
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Runtime smoke test on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          profile: pixel_5
+          script: |
+            cd example
+            flutter test integration_test/plugin_integration_test.dart -d emulator-5554
+
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build iOS XCFramework from pinned ref
+        run: tool/build_native.sh ios
+
+      - name: Print resolved provenance
+        run: cat NATIVE_PROVENANCE.md
+
+      - name: Verify checked-in API surface matches the pinned source
+        run: |
+          header=ios/Frameworks/Mobileproxy.xcframework/ios-arm64/Mobileproxy.framework/Headers/Mobileproxy.objc.h
+          if ! git diff --exit-code -- "$header"; then
+            echo "::error::The generated Mobileproxy.objc.h differs from a fresh build from the ref pinned in tool/OUTLINE_SDK_REF, meaning the checked-in iOS binary's API surface is stale. Run tool/build_native.sh and commit the result."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobileproxy-ios-${{ github.sha }}
+          path: ios/Frameworks/Mobileproxy.xcframework
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Unit tests
+        run: flutter test
+
+      - name: Build example app for the simulator against the freshly built framework
+        run: |
+          cd example
+          flutter pub get
+          flutter build ios --simulator --debug --no-codesign
+
+      - name: Runtime smoke test on the iOS Simulator
+        run: |
+          device=$(xcrun simctl list devices available -j | \
+            python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if 'iPhone' in x['name']))")
+          xcrun simctl boot "$device"
+          cd example
+          flutter test integration_test/plugin_integration_test.dart -d "$device"

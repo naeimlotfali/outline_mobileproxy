@@ -3,7 +3,7 @@ description: >-
   Flutter plugin for the Outline SDK's Mobileproxy library: run a local
   HTTP proxy on Android/iOS backed by Shadowsocks, SOCKS5, or an
   auto-selecting Smart Dialer, with no VPN permissions required.
-version: 0.0.1
+version: 0.0.2
 homepage: https://github.com/naeimlotfali/outline_mobileproxy
 repository: https://github.com/naeimlotfali/outline_mobileproxy
 issue_tracker: https://github.com/naeimlotfali/outline_mobileproxy/issues

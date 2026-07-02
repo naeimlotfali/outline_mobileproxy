@@ -4,6 +4,13 @@
 # (golang.getoutline.org/sdk/x/mobileproxy) and installs them into this
 # plugin's android/ and ios/ directories.
 #
+# The exact source revision is pinned in tool/OUTLINE_SDK_REF (a tag or a
+# full commit SHA), so a rebuild is reproducible: everyone who runs this
+# script against the same ref builds from the same source. To pick up an
+# SDK update, bump that file and rerun this script; CI (see
+# .github/workflows/build-native.yml) independently rebuilds from the same
+# pinned ref on every change to verify the checked-in artifacts still match.
+#
 # Requirements:
 #   - Go 1.24+ (https://go.dev/dl/, or let `go` auto-download the toolchain
 #     pinned by outline-sdk/x/go.mod)
@@ -23,6 +30,7 @@ TARGET="${1:-all}"
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 OUTLINE_SDK_REPO="https://github.com/OutlineFoundation/outline-sdk.git"
+OUTLINE_SDK_REF="$(tr -d '[:space:]' < "$PLUGIN_ROOT/tool/OUTLINE_SDK_REF")"
 
 : "${ANDROID_HOME:=$HOME/Library/Android/sdk}"
 : "${ANDROID_NDK_HOME:=$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | sort -V | tail -1)}"
@@ -32,23 +40,38 @@ ANDROID_MIN_API="21"
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
-echo "==> Cloning outline-sdk into $WORK_DIR"
-git clone --depth 1 "$OUTLINE_SDK_REPO" "$WORK_DIR/outline-sdk"
+echo "==> Fetching outline-sdk @ $OUTLINE_SDK_REF into $WORK_DIR"
+git init -q "$WORK_DIR/outline-sdk"
+cd "$WORK_DIR/outline-sdk"
+git remote add origin "$OUTLINE_SDK_REPO"
+# A plain `git fetch --depth 1 origin <ref>` works for both tags and full
+# commit SHAs against GitHub, without needing the full repo history.
+git fetch --quiet --depth 1 origin "$OUTLINE_SDK_REF"
+git checkout --quiet FETCH_HEAD
+RESOLVED_SHA="$(git rev-parse FETCH_HEAD)"
+echo "==> Resolved to commit $RESOLVED_SHA"
 
 cd "$WORK_DIR/outline-sdk/x"
 mkdir -p out
 
 echo "==> Building gomobile/gobind tools pinned to this module's go.sum"
 go build -o "$(pwd)/out/" golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
-
 export PATH="$(pwd)/out:$PATH"
-gomobile init
+GOMOBILE_VERSION="$(cd "$WORK_DIR/outline-sdk/x" && go list -m -f '{{.Version}}' golang.org/x/mobile)"
+GO_VERSION="$(go version | awk '{print $3}')"
+
+# Note: deliberately not running `gomobile init` here. It isn't part of the
+# upstream mobileproxy build instructions, and modern gomobile's init step
+# tries to `go install golang.org/x/mobile/cmd/gobind@latest`, which can
+# require a newer Go than the SDK's own pinned toolchain. The gobind built
+# above (pinned via go.sum, already first on PATH) is all `gomobile bind`
+# needs.
 
 build_android() {
   echo "==> Building Android AAR (androidapi=$ANDROID_MIN_API)"
   export ANDROID_HOME
   export ANDROID_NDK_HOME
-  gomobile bind -ldflags='-s -w' -target=android -androidapi="$ANDROID_MIN_API" \
+  gomobile bind -ldflags='-s -w' -trimpath -target=android -androidapi="$ANDROID_MIN_API" \
     -o "$(pwd)/out/mobileproxy.aar" golang.getoutline.org/sdk/x/mobileproxy
 
   echo "==> Unpacking AAR (AGP disallows local .aar deps in a library module)"
@@ -69,7 +92,7 @@ build_android() {
 
 build_ios() {
   echo "==> Building iOS XCFramework (iosversion=$IOS_MIN_VERSION)"
-  gomobile bind -ldflags='-s -w' -target=ios -iosversion="$IOS_MIN_VERSION" \
+  gomobile bind -ldflags='-s -w' -trimpath -target=ios -iosversion="$IOS_MIN_VERSION" \
     -o "$(pwd)/out/Mobileproxy.xcframework" golang.getoutline.org/sdk/x/mobileproxy
 
   mkdir -p "$PLUGIN_ROOT/ios/Frameworks"
@@ -84,5 +107,33 @@ case "$TARGET" in
   all) build_android; build_ios ;;
   *) echo "Unknown target: $TARGET (expected android, ios, or all)" >&2; exit 1 ;;
 esac
+
+cat > "$PLUGIN_ROOT/NATIVE_PROVENANCE.md" <<EOF
+# Native binary provenance
+
+The Android and iOS artifacts under \`android/libs\`, \`android/src/main/jniLibs\`,
+and \`ios/Frameworks/Mobileproxy.xcframework\` were built by
+[\`tool/build_native.sh\`](tool/build_native.sh) from:
+
+- **Source**: https://github.com/OutlineFoundation/outline-sdk
+- **Pinned ref** (\`tool/OUTLINE_SDK_REF\`): \`$OUTLINE_SDK_REF\`
+- **Resolved commit**: [\`$RESOLVED_SHA\`](https://github.com/OutlineFoundation/outline-sdk/commit/$RESOLVED_SHA)
+- **Package built**: \`golang.getoutline.org/sdk/x/mobileproxy\` (no patches applied)
+- **Go**: \`$GO_VERSION\`
+- **golang.org/x/mobile**: \`$GOMOBILE_VERSION\`
+- **Flags**: \`-ldflags='-s -w' -trimpath\`, \`-androidapi=$ANDROID_MIN_API\`, \`-iosversion=$IOS_MIN_VERSION\`
+- **Rebuilt on**: $(date -u +"%Y-%m-%d %H:%M UTC")
+
+[.github/workflows/build-native.yml](.github/workflows/build-native.yml)
+independently rebuilds from this same pinned ref on every change to it, so
+the result can be verified in the open rather than taken on faith. The
+managed Java layer (\`mobileproxy-classes.jar\`) and the generated
+Objective-C header are deterministic and diffed exactly; the compiled
+native \`.so\`/Mach-O binaries are not byte-for-bit reproducible across
+separate toolchain runs (Go embeds a build ID even with \`-trimpath\`), so
+those are compared by rebuilding-and-linking against the plugin's own
+Kotlin/Swift code instead of a raw binary diff.
+EOF
+echo "==> Wrote NATIVE_PROVENANCE.md"
 
 echo "==> Done."

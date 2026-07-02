@@ -1,3 +1,17 @@
+## 0.0.2
+
+* Pin the vendored outline-sdk source to a tagged revision
+  (`tool/OUTLINE_SDK_REF`, currently `x/v0.2.0`) instead of building from a
+  moving branch, and record the resolved commit/toolchain/flags in
+  `NATIVE_PROVENANCE.md`.
+* Add a CI workflow (`.github/workflows/build-native.yml`) that rebuilds the
+  native binaries from that pinned ref on every change, diffs the
+  deterministic parts (Java layer, iOS header) against what's checked in,
+  and runs the plugin's integration tests against the rebuilt binaries on a
+  real Android emulator and iOS Simulator.
+* No API or behavior changes; native binaries reflect a fresh, verified
+  build from the pinned source.
+
 ## 0.0.1
 
 * Initial release.
