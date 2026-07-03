@@ -82,9 +82,13 @@ jobs:
             android/libs/mobileproxy-classes.jar
             android/src/main/jniLibs
 
+      # Pinned, not `channel: stable`: a floating channel breaks CI on its own
+      # schedule whenever upstream Flutter raises its minimum Gradle/tooling
+      # requirements (as happened here), unrelated to any change in this repo.
+      # Bump this deliberately alongside example/android's Gradle/AGP versions.
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.24.2'
 
       - name: Unit tests
         run: flutter test
@@ -133,9 +137,13 @@ jobs:
           name: mobileproxy-ios-${{ github.sha }}
           path: ios/Frameworks/Mobileproxy.xcframework
 
+      # Pinned, not `channel: stable`: a floating channel breaks CI on its own
+      # schedule whenever upstream Flutter raises its minimum Gradle/tooling
+      # requirements (as happened here), unrelated to any change in this repo.
+      # Bump this deliberately alongside example/android's Gradle/AGP versions.
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.24.2'
 
       - name: Unit tests
         run: flutter test
