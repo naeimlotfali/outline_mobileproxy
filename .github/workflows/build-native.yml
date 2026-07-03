@@ -34,6 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GitHub-hosted Linux runners ship /dev/kvm but don't grant the actions
+      # user access to it by default, so the emulator below would otherwise
+      # fall back to unaccelerated software emulation and never stabilize
+      # (adb kept reporting "device offline"). This is the fix documented by
+      # reactivecircus/android-emulator-runner itself for this exact case.
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
@@ -105,10 +116,10 @@ jobs:
           api-level: 30
           arch: x86_64
           profile: pixel_5
-          script: |
-            cd example
-            flutter pub get
-            flutter test integration_test/plugin_integration_test.dart -d emulator-5554
+          # A multi-line `script:` block runs each line as its own separate
+          # shell invocation (the `cd` doesn't persist to the next line), so
+          # this has to be one chained command rather than a `|` block.
+          script: cd example && flutter pub get && flutter test integration_test/plugin_integration_test.dart -d emulator-5554
 
   ios:
     runs-on: macos-14
