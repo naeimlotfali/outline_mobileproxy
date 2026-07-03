@@ -36,6 +36,8 @@ jobs:
         with:
           go-version: '1.24'
 
+      - uses: android-actions/setup-android@v3
+
       - name: Install pinned Android NDK
         run: |
           yes | sdkmanager --licenses > /dev/null
