@@ -107,6 +107,7 @@ jobs:
           profile: pixel_5
           script: |
             cd example
+            flutter pub get
             flutter test integration_test/plugin_integration_test.dart -d emulator-5554
 
   ios:
