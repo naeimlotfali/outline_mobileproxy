@@ -266,10 +266,13 @@ re-packaged into this plugin's own AAR).
 rebuilds both artifacts from that same pinned ref on every push/PR that
 touches it, in the open, and:
 
-- diffs the managed Java layer (`mobileproxy-classes.jar`) and the generated
-  iOS Objective-C header byte-for-byte against what's checked in — these are
-  deterministic given the same source and toolchain, so any mismatch fails
-  the build;
+- diffs the generated iOS Objective-C header byte-for-byte against what's
+  checked in — deterministic given the same source, so any mismatch fails
+  the build — and compares the Android API surface with `javap` (public
+  method signatures) rather than a raw jar diff, since the jar's bytes
+  depend on the compiling JDK, not just the pinned Go source (a real
+  cross-JDK CI run caught exactly this: same source, different JDK,
+  different jar bytes, identical API);
 - builds and links the example app against the freshly built native
   libraries, and runs the plugin's [integration tests](example/integration_test/plugin_integration_test.dart)
   against them on a real Android emulator and iOS Simulator, to functionally

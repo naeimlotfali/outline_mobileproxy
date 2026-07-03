@@ -126,13 +126,19 @@ and \`ios/Frameworks/Mobileproxy.xcframework\` were built by
 
 [.github/workflows/build-native.yml](.github/workflows/build-native.yml)
 independently rebuilds from this same pinned ref on every change to it, so
-the result can be verified in the open rather than taken on faith. The
-managed Java layer (\`mobileproxy-classes.jar\`) and the generated
-Objective-C header are deterministic and diffed exactly; the compiled
-native \`.so\`/Mach-O binaries are not byte-for-bit reproducible across
-separate toolchain runs (Go embeds a build ID even with \`-trimpath\`), so
-those are compared by rebuilding-and-linking against the plugin's own
-Kotlin/Swift code instead of a raw binary diff.
+the result can be verified in the open rather than taken on faith:
+
+- the generated iOS Objective-C header is deterministic given the same
+  source and is diffed byte-for-byte;
+- the Android Java API surface is compared with \`javap\` (public method
+  signatures), not a raw jar diff — the jar's bytes depend on the JDK that
+  compiled it, not just the pinned Go source, so two honest builds on
+  different JDKs produce different bytes for the same API;
+- the compiled native \`.so\`/Mach-O binaries are, likewise, not
+  byte-for-bit reproducible across separate toolchain runs (Go embeds a
+  build ID even with \`-trimpath\`), so those are verified functionally, by
+  building and running the plugin's own example app against them, rather
+  than by raw binary diff.
 EOF
 echo "==> Wrote NATIVE_PROVENANCE.md"
 

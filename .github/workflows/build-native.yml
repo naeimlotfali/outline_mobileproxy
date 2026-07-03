@@ -6,9 +6,11 @@ name: Build native binaries
 # the exact commands and logs that produced them, and downloads the freshly
 # built artifacts as workflow artifacts for independent comparison.
 #
-# See NATIVE_PROVENANCE.md for what "match" means here: the managed Java
-# layer and the generated Objective-C header are deterministic and diffed
-# exactly; the compiled .so/Mach-O binaries are verified functionally, by
+# See NATIVE_PROVENANCE.md for what "match" means here: the generated iOS
+# Objective-C header is deterministic and diffed byte-for-byte; the Android
+# Java API surface is compared with javap instead of a raw jar diff, since
+# the jar's bytes depend on the JDK that compiled it, not just the Go
+# source; the compiled .so/Mach-O binaries are verified functionally, by
 # building and running the plugin's own example app against them, rather
 # than by raw binary diff (Go embeds a build ID even with -trimpath, so two
 # honest rebuilds of identical source are not byte-identical).
@@ -44,16 +46,32 @@ jobs:
           sdkmanager --install "ndk;27.0.12077973"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
 
+      - name: Stash the currently checked-in jar for comparison
+        run: cp android/libs/mobileproxy-classes.jar /tmp/checked-in-mobileproxy-classes.jar
+
       - name: Build Android native library from pinned ref
         run: tool/build_native.sh android
 
       - name: Print resolved provenance
         run: cat NATIVE_PROVENANCE.md
 
-      - name: Verify checked-in managed layer matches the pinned source
+      - name: Verify checked-in consumer proguard rules match the pinned source
         run: |
-          if ! git diff --exit-code -- android/libs/mobileproxy-classes.jar android/mobileproxy-consumer-rules.pro; then
-            echo "::error::android/libs/mobileproxy-classes.jar (or the consumer proguard rules) does not match a fresh build from the ref pinned in tool/OUTLINE_SDK_REF. Run tool/build_native.sh and commit the result."
+          if ! git diff --exit-code -- android/mobileproxy-consumer-rules.pro; then
+            echo "::error::android/mobileproxy-consumer-rules.pro does not match a fresh build from the ref pinned in tool/OUTLINE_SDK_REF. Run tool/build_native.sh and commit the result."
+            exit 1
+          fi
+
+      - name: Verify checked-in Android API surface matches the pinned source
+        run: |
+          classes="mobileproxy.Mobileproxy mobileproxy.Proxy mobileproxy.StreamDialer mobileproxy.SmartDialerOptions mobileproxy.StringList mobileproxy.LogWriter mobileproxy.StrategyCache"
+          # Compare public API signatures (javap), not raw jar bytes: the jar's bytes
+          # depend on the JDK that compiled it, not just the pinned Go source, so a
+          # byte diff would fail even when nothing meaningful changed.
+          javap -p -classpath /tmp/checked-in-mobileproxy-classes.jar $classes > /tmp/checked-in-api.txt
+          javap -p -classpath android/libs/mobileproxy-classes.jar $classes > /tmp/fresh-api.txt
+          if ! diff -u /tmp/checked-in-api.txt /tmp/fresh-api.txt; then
+            echo "::error::The Android API surface built from the ref pinned in tool/OUTLINE_SDK_REF differs from what's checked in. Run tool/build_native.sh and commit the result."
             exit 1
           fi
 
